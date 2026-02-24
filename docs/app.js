@@ -1,92 +1,102 @@
-// QRShield frontend logic
-const analyzeBtn = document.getElementById('analyze-btn')
-const urlInput = document.getElementById('url-input')
-const loader = document.getElementById('loader')
-const result = document.getElementById('result')
-const riskScoreEl = document.getElementById('risk-score')
-const statusBadge = document.getElementById('status-badge')
-const explanationEl = document.getElementById('explanation')
-const startScan = document.getElementById('start-scan')
-const stopScan = document.getElementById('stop-scan')
+document.addEventListener("DOMContentLoaded", () => {
+  const urlInput = document.getElementById("url-input");
+  const analyzeBtn = document.getElementById("analyze-btn");
+  const startScanBtn = document.getElementById("start-scan");
+  const stopScanBtn = document.getElementById("stop-scan");
+  const resultCard = document.getElementById("result");
+  const loader = document.getElementById("loader");
 
-const BACKEND_URL = 'http://localhost:9000/analyze'
+  const statusBadge = document.getElementById("status-badge");
+  const riskScore = document.getElementById("risk-score");
+  const explanation = document.getElementById("explanation");
 
-function showLoader(show){
-  loader.classList.toggle('hidden', !show)
-}
+  let html5QrCode;
+  let scanning = false;
 
-function showResult(obj){
-  result.classList.remove('hidden')
-  riskScoreEl.textContent = obj.risk_score
-  explanationEl.textContent = obj.reason
-  statusBadge.textContent = obj.status
-  statusBadge.className = 'badge' // reset
-  if(obj.status === 'Safe') statusBadge.classList.add('safe')
-  else if(obj.status === 'Suspicious') statusBadge.classList.add('suspicious')
-  else statusBadge.classList.add('dangerous')
-}
+  //  CHANGE THIS
+  const API_URL = "http://127.0.0.1:9000/analyze";
 
-async function analyze(url){
-  showLoader(true)
-  result.classList.add('hidden')
-  try{
-    const resp = await fetch(BACKEND_URL, {
-      method: 'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({url})
-    })
-    if(!resp.ok){
-      const text = await resp.text()
-      throw new Error(text || 'Server error')
+  // -------------------
+  // Start Camera
+  // -------------------
+  startScanBtn.addEventListener("click", async () => {
+    if (scanning) return;
+
+    html5QrCode = new Html5Qrcode("reader");
+
+    try {
+      const cameras = await Html5Qrcode.getCameras();
+      if (cameras && cameras.length) {
+        scanning = true;
+
+        await html5QrCode.start(
+          cameras[0].id,
+          { fps: 10, qrbox: 250 },
+          (decodedText) => {
+            urlInput.value = decodedText;
+          }
+        );
+      }
+    } catch (err) {
+      alert("Camera access denied or not available.");
+      console.error(err);
     }
-    const data = await resp.json()
-    showResult(data)
-  }catch(err){
-    explanationEl.textContent = 'Error: ' + (err.message || err)
-    result.classList.remove('hidden')
-    statusBadge.className = 'badge dangerous'
-    riskScoreEl.textContent = '—'
-  }finally{
-    showLoader(false)
-  }
-}
+  });
 
-analyzeBtn.addEventListener('click', ()=>{
-  const url = urlInput.value.trim()
-  if(!url) return alert('Please enter or scan a URL first.')
-  analyze(url)
-})
+  // -------------------
+  // Stop Camera
+  // -------------------
+  stopScanBtn.addEventListener("click", async () => {
+    if (!scanning) return;
 
-// Camera QR scanning using html5-qrcode
-let html5QrcodeScanner = null
-const readerId = 'reader'
+    await html5QrCode.stop();
+    scanning = false;
+  });
 
-startScan.addEventListener('click', async ()=>{
-  const Html5Qrcode = window.Html5Qrcode
-  if(!Html5Qrcode) return alert('Scanner library not loaded')
-  if(html5QrcodeScanner) return
-  html5QrcodeScanner = new Html5Qrcode(readerId)
-  try{
-    await html5QrcodeScanner.start({facingMode:'environment'}, {fps:10, qrbox:250}, (decoded)=>{
-      urlInput.value = decoded
-      // Auto-analyze quickly after decode
-      analyze(decoded)
-    })
-  }catch(err){
-    alert('Camera start failed: ' + err)
-  }
-})
+  // -------------------
+  // Analyze URL
+  // -------------------
+  analyzeBtn.addEventListener("click", async () => {
+    const url = urlInput.value.trim();
+    if (!url) {
+      alert("Please enter or scan a URL.");
+      return;
+    }
 
-stopScan.addEventListener('click', async ()=>{
-  if(!html5QrcodeScanner) return
-  try{
-    await html5QrcodeScanner.stop()
-  }catch(e){}
-  html5QrcodeScanner.clear()
-  html5QrcodeScanner = null
-})
+    resultCard.classList.add("hidden");
+    loader.classList.remove("hidden");
 
-// Nice small UX touch: allow Enter to analyze
-urlInput.addEventListener('keydown', (e)=>{
-  if(e.key === 'Enter') analyzeBtn.click()
-})
+    try {
+      const response = await fetch(API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ url })
+      });
+
+      const data = await response.json();
+
+      loader.classList.add("hidden");
+      resultCard.classList.remove("hidden");
+
+      riskScore.textContent = data.risk_score;
+      explanation.textContent = data.reason;
+      statusBadge.textContent = data.status;
+
+      // Color logic
+      if (data.status === "Safe") {
+        resultCard.style.background = "#14532d";
+      } else if (data.status === "Suspicious") {
+        resultCard.style.background = "#78350f";
+      } else {
+        resultCard.style.background = "#7f1d1d";
+      }
+
+    } catch (error) {
+      loader.classList.add("hidden");
+      alert("Error connecting to backend.");
+      console.error(error);
+    }
+  });
+});
